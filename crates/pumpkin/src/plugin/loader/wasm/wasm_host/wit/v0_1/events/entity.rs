@@ -1585,7 +1585,6 @@ impl ToFromWasmEvent for VillagerAcquireTradeEvent {
     }
 
     fn apply_wasm_event(&mut self, event: Event, state: &mut PluginHostState) {
-        cleanup_event(&event, state);
         if let Event::VillagerAcquireTradeEvent(data) = event {
             self.cancelled = data.cancelled;
             self.recipe_index = data.recipe_index;
