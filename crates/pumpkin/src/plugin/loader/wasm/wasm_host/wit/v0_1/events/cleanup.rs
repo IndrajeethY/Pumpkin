@@ -545,7 +545,13 @@ pub fn cleanup_event(event: &Event, state: &mut PluginHostState) {
         Event::SheepRegrowWoolEvent(_) => {}
         Event::SlimeSplitEvent(_) => {}
         Event::StriderTemperatureChangeEvent(_) => {}
-        Event::VillagerAcquireTradeEvent(_) => {}
+        Event::VillagerAcquireTradeEvent(data) => {
+            cleanup_item_stack(state, &data.cost_a);
+            if let Some(ref cost_b) = data.cost_b {
+                cleanup_item_stack(state, cost_b);
+            }
+            cleanup_item_stack(state, &data.output);
+        }
         Event::VillagerCareerChangeEvent(_) => {}
         Event::VillagerReplenishTradeEvent(_) => {}
         Event::WardenAngerChangeEvent(_) => {}

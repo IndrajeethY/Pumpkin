@@ -65,7 +65,7 @@ use crate::plugin::{
         warden_anger_change::WardenAngerChangeEvent,
     },
     loader::wasm::wasm_host::{
-        state::PluginHostState,
+        state::{ItemStackResource, PluginHostState},
         wit::v0_1::{
             events::{
                 ToFromWasmEvent, cleanup_event, consume_player, consume_text_component,
@@ -107,6 +107,20 @@ use crate::plugin::{
         },
     },
 };
+
+fn consume_item_stack(
+    state: &mut PluginHostState,
+    item: &wasmtime::component::Resource<
+        crate::plugin::loader::wasm::wasm_host::wit::v0_1::pumpkin::plugin::item_stack::ItemStack,
+    >,
+) -> pumpkin_data::item_stack::ItemStack {
+    let mutex = state
+        .resource_table
+        .delete::<ItemStackResource>(wasmtime::component::Resource::new_own(item.rep()))
+        .expect("invalid item stack resource handle")
+        .provider;
+    mutex.try_lock().expect("lock item stack").clone()
+}
 
 impl ToFromWasmEvent for EntityDamageEvent {
     fn to_wasm_event(&self, _state: &mut PluginHostState) -> Event {
@@ -1544,10 +1558,28 @@ impl ToFromWasmEvent for StriderTemperatureChangeEvent {
 }
 
 impl ToFromWasmEvent for VillagerAcquireTradeEvent {
-    fn to_wasm_event(&self, _state: &mut PluginHostState) -> Event {
+    fn to_wasm_event(&self, state: &mut PluginHostState) -> Event {
+        let cost_a = state
+            .add_item_stack(Arc::new(Mutex::new(self.cost_a.clone())))
+            .expect("failed to add cost_a item stack resource");
+        let cost_b = self.cost_b.as_ref().map(|stack| {
+            state
+                .add_item_stack(Arc::new(Mutex::new(stack.clone())))
+                .expect("failed to add cost_b item stack resource")
+        });
+        let output = state
+            .add_item_stack(Arc::new(Mutex::new(self.output.clone())))
+            .expect("failed to add output item stack resource");
+
         Event::VillagerAcquireTradeEvent(VillagerAcquireTradeEventData {
             entity_id: self.entity_id,
             recipe_index: self.recipe_index,
+            cost_a,
+            cost_b,
+            output,
+            max_uses: self.max_uses,
+            xp: self.xp,
+            price_multiplier: self.price_multiplier,
             cancelled: self.cancelled,
         })
     }
@@ -1557,14 +1589,26 @@ impl ToFromWasmEvent for VillagerAcquireTradeEvent {
         if let Event::VillagerAcquireTradeEvent(data) = event {
             self.cancelled = data.cancelled;
             self.recipe_index = data.recipe_index;
+            self.cost_a = consume_item_stack(state, &data.cost_a);
+            self.cost_b = data.cost_b.as_ref().map(|item| consume_item_stack(state, item));
+            self.output = consume_item_stack(state, &data.output);
+            self.max_uses = data.max_uses;
+            self.xp = data.xp;
+            self.price_multiplier = data.price_multiplier;
         }
     }
 
-    fn from_wasm_event(event: Event, _state: &mut PluginHostState) -> Self {
+    fn from_wasm_event(event: Event, state: &mut PluginHostState) -> Self {
         match event {
             Event::VillagerAcquireTradeEvent(data) => Self {
                 entity_id: data.entity_id,
                 recipe_index: data.recipe_index,
+                cost_a: consume_item_stack(state, &data.cost_a),
+                cost_b: data.cost_b.as_ref().map(|item| consume_item_stack(state, item)),
+                output: consume_item_stack(state, &data.output),
+                max_uses: data.max_uses,
+                xp: data.xp,
+                price_multiplier: data.price_multiplier,
                 cancelled: data.cancelled,
             },
             _ => panic!("unexpected event type"),

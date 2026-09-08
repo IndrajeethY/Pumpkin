@@ -705,18 +705,38 @@ impl VillagerEntity {
                     }
                     VillagerTradeModifier::Potion(potion) => apply_potion(&mut output, potion),
                 }
-                new_offers.push(pumpkin_protocol::java::client::play::MerchantOffer {
-                    base_cost_a: ItemStackSerializer(Cow::Owned(base_cost_a)),
-                    output: ItemStackSerializer(Cow::Owned(output)),
-                    cost_b: cost_b.map(|stack| ItemStackSerializer(Cow::Owned(stack))),
-                    reward_exp: true,
-                    uses: 0,
+                // Fire VillagerAcquireTradeEvent so plugins can modify or cancel
+                let mut event = crate::plugin::api::events::entity::VillagerAcquireTradeEvent {
+                    entity_id: self.get_entity().entity_id,
+                    recipe_index: added as i32,
+                    cost_a: base_cost_a,
+                    cost_b: cost_b,
+                    output,
                     max_uses: trade.max_uses,
                     xp: trade.xp,
-                    special_price: 0,
                     price_multiplier: trade.price_multiplier,
-                    demand: 0,
-                });
+                    cancelled: false,
+                };
+
+                let world = self.get_entity().world.load();
+                if let Some(server) = world.server.upgrade() {
+                    server.plugin_manager.fire_blocking(&server, &mut event);
+                }
+
+                if !event.cancelled {
+                    new_offers.push(pumpkin_protocol::java::client::play::MerchantOffer {
+                        base_cost_a: ItemStackSerializer(Cow::Owned(event.cost_a)),
+                        output: ItemStackSerializer(Cow::Owned(event.output)),
+                        cost_b: event.cost_b.map(|stack| ItemStackSerializer(Cow::Owned(stack))),
+                        reward_exp: true,
+                        uses: 0,
+                        max_uses: event.max_uses,
+                        xp: event.xp,
+                        special_price: 0,
+                        price_multiplier: event.price_multiplier,
+                        demand: 0,
+                    });
+                }
                 added += 1;
             }
         }
